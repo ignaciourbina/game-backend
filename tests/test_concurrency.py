@@ -30,7 +30,7 @@ def test_concurrent_joins():
         for t in threads:
             t.join()
 
-        # Ensure no session has more than 2 players recorded
+        # Ensure no session has more than MAX_PLAYERS players recorded
         with sqlite3.connect(game_db.DB_FILE) as conn:
             rows = conn.execute("SELECT id, player_count FROM sessions").fetchall()
 
