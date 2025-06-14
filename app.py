@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import os
-from typing import TypedDict
+from typing_extensions import TypedDict
 from enum import Enum
 
 from fastapi import FastAPI, HTTPException
