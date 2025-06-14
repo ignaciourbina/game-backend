@@ -13,7 +13,7 @@ import os
 from typing import TypedDict
 from enum import Enum
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -93,7 +93,24 @@ def state(session_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-@@ -105,43 +112,43 @@ def move(m: MoveIn):
+@app.post("/api/move")
+def move(m: MoveIn):
+    """`POST /api/move` – submit a player's move.
+
+    Returns the same structure as `/api/state`.
+
+    ```bash
+    curl -X POST <BASE_URL>/api/move \
+         -H 'Content-Type: application/json' \
+         -d '{"session_id":"<SID>","player_id":"<PID>","choice":"Cooperate"}'
+    ```
+    """
+    try:
+        db.save_move(m.session_id, m.player_id, m.choice.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return db.get_state(m.session_id)
 
 
 @app.get("/api/result")
