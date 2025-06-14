@@ -1,33 +1,32 @@
 # ---------------- app.py ----------------
-"""FastAPI backend for a tiny two-player game (e.g. Prisoner's Dilemma).
-Run locally with:  uvicorn app:app --host 0.0.0.0 --port 8000
-When deployed as a **FastAPI Space** on Hugging Face, the hosting platform
-will launch it for you (no explicit `uvicorn` call is required).
+"""FastAPI backend (API *only*) for the two‑player game.
+
+The frontend lives elsewhere, so we **do not** serve static files.
+Deploy this file in a Hugging Face *FastAPI Space* or *Docker Space* –
+the platform will detect the `app` object automatically.
 """
 
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from typing import TypedDict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import game_db as db  # the helper module created earlier
+import game_db as db  # database helper module
 
 # --------------------------------------------------------------------------- #
 # Initialisation
 # --------------------------------------------------------------------------- #
-app = FastAPI(title="Two-Player Game API")
+app = FastAPI(title="Two‑Player Game API")
 db.init_db()
 
-# allow any origin so the built-in index.html can be opened from file:// too
+# Allow any origin so an external HTML page can call our API via fetch()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # tighten this to your domain if desired
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -53,7 +52,7 @@ class MoveIn(BaseModel):
 
 @app.post("/api/join", response_model=JoinResponse)
 def join() -> JoinResponse:
-    """Find a session (or create one) and return IDs for both session & player."""
+    """Create or join a session and return IDs for session & player."""
     session_id, player_id = db.join_session()
     return {"session_id": session_id, "player_id": player_id}
 
@@ -78,10 +77,3 @@ def move(m: MoveIn):
 @app.get("/api/result")
 def result(session_id: str):
     return {"results": db.get_results(session_id)}
-
-# --------------------------------------------------------------------------- #
-# Static SPA (index.html lives in ./static)
-# --------------------------------------------------------------------------- #
-_STATIC_DIR = Path(__file__).parent / "static"
-_STATIC_DIR.mkdir(exist_ok=True)  # runtime safety; Docker image copies files anyway
-app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
