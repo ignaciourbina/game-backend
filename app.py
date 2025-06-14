@@ -130,21 +130,18 @@ def download_dataset():
     return FileResponse(path=str(db._DB_FILE), filename="game.db", media_type="application/octet-stream")
 
 
-@app.delete("/api/dataset", status_code=204)
+@app.delete("/api/dataset", status_code=200)
 def purge_dataset():
-    """`DELETE /api/dataset` – **destroy** the SQLite database and re‑init.
-
-    Intended for automated test suites (e.g. CI) that require a clean
-    slate.  Irreversible – all sessions and moves are lost.
+    """`DELETE /api/dataset` – **wipe** the SQLite file and start fresh, then
+    emit a *human‑readable JSON confirmation* instead of a blank 204.
 
     ```bash
     curl -X DELETE <BASE_URL>/api/dataset
     ```
+    → `{ "detail": "database reset; all sessions purged" }`
     """
-    # Remove if present, then re‑create an empty DB.
-    try:
-        if os.path.exists(db._DB_FILE):
-            os.remove(db._DB_FILE)
-    finally:
-        db.init_db()
-    return Response(status_code=204)
+    # Remove the DB if it exists, then recreate an empty one.
+    if os.path.exists(db._DB_FILE):
+        os.remove(db._DB_FILE)
+    db.init_db()
+    return {"detail": "database reset; all sessions purged"}
