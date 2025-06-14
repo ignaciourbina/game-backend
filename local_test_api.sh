@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # --------------------------------------------------------------------------- #
-# test_api.sh – quick‑and‑dirty harness that exercises the Five‑Endpoint
-#               Prisoner’s Dilemma API with **four players** (two sessions)
-#               and finally dumps the raw SQLite database.
+# local_test_api.sh – quick‑and‑dirty harness that exercises the Five‑Endpoint
+#                     Prisoner’s Dilemma API with **four players** (two sessions)
+#                     running on a locally hosted server. It finally dumps the
+#                     raw SQLite database.
 #
 #   • Requires: curl, jq  (brew install jq | apt‑get install jq)
-#   • Usage   : ./test_api.sh [BASE_URL]
-#               BASE_URL defaults to the HF Space demo URL.
+#   • Usage   : ./local_test_api.sh [BASE_URL]
+#               BASE_URL defaults to http://localhost:8000
 # --------------------------------------------------------------------------- #
 set -euo pipefail
 
-BASE_URL=${1:-"https://iurbinah-pd-backend-api.hf.space"}
+# Default to the local server if no BASE_URL is provided
+BASE_URL=${1:-"http://localhost:8000"}
 
 echo "=== 1. Spawning Session #1 ==="
 resp=$(curl -s -X POST "$BASE_URL/api/join")
