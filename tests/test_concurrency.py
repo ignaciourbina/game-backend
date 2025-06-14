@@ -15,7 +15,8 @@ def test_concurrent_joins():
     # Use a temporary directory for isolation
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
-        game_db.DB_FILE = tmp_path / "game.db"
+        game_parameters.DB_FILE = tmp_path / "game.db"
+        game_db.DB_FILE = game_parameters.DB_FILE
         game_db.init_db()
 
         results = []
