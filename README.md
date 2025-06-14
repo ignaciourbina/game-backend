@@ -12,7 +12,7 @@ A **zero‑dependency front‑end** + **FastAPI/SQLite back‑end** that lets an
 | **API**        | [`app.py`](./app.py)                               | FastAPI with six REST endpoints – `/join`, `/state`, `/move`, `/result`, `/dataset` (**GET** download, **DELETE** purge). Runs in a HF *FastAPI* Space or any container. |
 | **Data**       | [`game_db.py`](./game_db.py)                       | Thin SQLite helper (`/data/game.db`) with safety rails: context‑managed connections, foreign keys, unique constraints.                                                   |
 | **Tests**      | [`test_api.sh`](./test_api.sh)                     | Bash harness that spawns two sessions (four players), submits moves, and downloads the DB.                                                                               |
-| **SQL cheats** | [`sqlite_cheatsheet.txt`](./sqlite_cheatsheet.txt) | Copy‑paste SQLite commands for inspection & export.                                                                                                                      |
+| **SQL cheats** | [`sqlite_cheatsheet.md`](./sqlite_cheatsheet.md) | Copy‑paste SQLite commands for inspection & export.                                                                                                                      |
 
 ---
 
