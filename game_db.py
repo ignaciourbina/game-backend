@@ -101,34 +101,49 @@ def join_session() -> Tuple[str, str]:
     with _get_conn() as conn:
         cur = conn.cursor()
 
-        # Attempt to join an existing session that has only 1 player so far
-        cur.execute(
-            """
-            SELECT id
-            FROM   sessions
-            WHERE  player_count = 1
-            LIMIT  1
-            """
-        )
-        row = cur.fetchone()
-
         player_id: str = str(uuid.uuid4())
 
-        if row:
-            (session_id,) = row
+        while True:
+            # Attempt to find a session waiting for exactly one player.
             cur.execute(
-                "UPDATE sessions SET player_count = player_count + 1 WHERE id = ?",
-                (session_id,),
+                """
+                SELECT id
+                FROM   sessions
+                WHERE  player_count = 1
+                LIMIT  1
+                """
             )
-        else:
-            # Either no open sessions or every open session already full → create one
-            session_id = str(uuid.uuid4())
-            cur.execute(
-                "INSERT INTO sessions (id, player_count) VALUES (?, 1)",
-                (session_id,),
-            )
+            row = cur.fetchone()
 
-        return session_id, player_id
+            if row:
+                (session_id,) = row
+                try:
+                    cur.execute(
+                        "UPDATE sessions SET player_count = player_count + 1 "
+                        "WHERE id = ? AND player_count = 1",
+                        (session_id,),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise ValueError("Failed to join existing session") from exc
+
+                if cur.rowcount == 1:
+                    # Successfully joined this session.
+                    return session_id, player_id
+                # Lost a race – another join updated first. Retry search.
+                continue
+
+            # No open sessions → create one.
+            session_id = str(uuid.uuid4())
+            try:
+                cur.execute(
+                    "INSERT INTO sessions (id, player_count) VALUES (?, 1)",
+                    (session_id,),
+                )
+            except sqlite3.IntegrityError as exc:
+                # Extremely unlikely UUID collision or race; retry.
+                continue
+
+            return session_id, player_id
 
 
 def get_state(session_id: str) -> Dict[str, int | str]:
