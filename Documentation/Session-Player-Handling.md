@@ -1,9 +1,9 @@
 When a visitor clicks Join, the front‑end makes a POST /api/join request and stores the returned IDs in localStorage. The code in the HTML explicitly sets two storage keys:
-
+```
 const store      = window.localStorage;
 const sessionKey = "pd_session_id";  // maps to sessions.id (UUID)
 const playerKey  = "pd_player_id";   // maps to moves.player_id (UUID)
-
+```
 The join controller then posts to the API and persists the IDs so that refreshing or opening the page in the same browser tab keeps the same session/player:
 ```
 document.getElementById("join-btn").onclick = async () => {
