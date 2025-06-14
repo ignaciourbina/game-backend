@@ -1,5 +1,6 @@
 # ---------------- app.py ----------------
-"""FastAPI **JSON‑only** backend for the two‑player Prisoner’s Dilemma demo.
+"""FastAPI **JSON‑only** backend for a Prisoner’s Dilemma demo supporting up to
+``game_parameters.MAX_PLAYERS`` players.
 
 *   **No static assets** – the UI is hosted separately.
 *   **Six REST endpoints** – join, state, move, result, **dataset download & destroy** – each documented inline with a terse cURL snippet and precise contract.
@@ -10,11 +11,14 @@ from __future__ import annotations
 
 import os
 from typing import TypedDict
+from enum import Enum
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+import game_parameters
 
 import game_db as db  # local SQLite helper
 
@@ -22,7 +26,7 @@ import game_db as db  # local SQLite helper
 # Application bootstrap
 # --------------------------------------------------------------------------- #
 
-app = FastAPI(title="Two‑Player Game API")
+app = FastAPI(title=game_parameters.APP_TITLE)
 db.init_db()
 
 # CORS: allow any origin so a static HTML page can query the API from
@@ -44,10 +48,13 @@ class JoinResponse(TypedDict):
     player_id: str   # UUID4, opaque to client
 
 
+ChoiceEnum = Enum("ChoiceEnum", {c.upper(): c for c in game_parameters.CHOICES}, type=str)
+
+
 class MoveIn(BaseModel):
     session_id: str
     player_id: str
-    choice: str  # "Cooperate" | "Defect" (string for brevity)
+    choice: ChoiceEnum
 
 
 # --------------------------------------------------------------------------- #
@@ -58,9 +65,9 @@ class MoveIn(BaseModel):
 def join() -> JoinResponse:
     """`POST /api/join` – allocate a **session/player tuple**.
 
-    *Transactional semantics*: if a session with `player_count = 1` exists
-    it is atomically promoted to 2; otherwise a new `sessions` row is
-    inserted.
+    *Transactional semantics*: if a session has fewer than
+    ``game_parameters.MAX_PLAYERS`` participants its counter is atomically
+    incremented; otherwise a new `sessions` row is inserted.
 
     ```bash
     curl -X POST <BASE_URL>/api/join
@@ -127,7 +134,7 @@ def download_dataset():
     curl -L -o game.db "<BASE_URL>/api/dataset"
     ```
     """
-    return FileResponse(path=str(db.DB_FILE), filename="game.db", media_type="application/octet-stream")
+    return FileResponse(path=str(game_parameters.DB_FILE), filename="game.db", media_type="application/octet-stream")
 
 
 @app.delete("/api/dataset", status_code=200)
@@ -141,7 +148,7 @@ def purge_dataset():
     → `{ "detail": "database reset; all sessions purged" }`
     """
     # Remove the DB if it exists, then recreate an empty one.
-    if os.path.exists(db.DB_FILE):
-        os.remove(db.DB_FILE)
+    if os.path.exists(game_parameters.DB_FILE):
+        os.remove(game_parameters.DB_FILE)
     db.init_db()
     return {"detail": "database reset; all sessions purged"}

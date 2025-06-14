@@ -2,7 +2,8 @@
 """
 game_db.py
 
-A minimal SQLite-backed helper for two‍player games (e.g. Rock‍Paper‍Scissors).
+A minimal SQLite-backed helper for games with up to
+``game_parameters.MAX_PLAYERS`` participants (e.g. Rock‍Paper‍Scissors).
 
 Key improvements over the original sketch
 -----------------------------------------
