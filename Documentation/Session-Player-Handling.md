@@ -76,3 +76,61 @@ Second browser: Its join call finds that session waiting for a second player (pl
 Those IDs are stored in each browser’s localStorage, so the page can keep polling /api/state or send a move via /api/move without rejoining. The README explicitly notes that “Each visitor auto‑pairs with the next visitor; phase logic lives in the DB.”
 
 In short, the persistence comes from storing the IDs client‑side, and session assignment comes from the join_session() logic that matches players until a session is full before creating a new one.
+
+---
+
+When a round finishes, the Results page activates the Play again button.
+The handler for that button is defined in the client:
+```
+248          // Restart wipes IDs and returns to Join page
+249          document.getElementById("restart-btn").onclick = () => {
+250            resetLocal();
+251            goto("join");
+252          };
+```
+resetLocal() simply clears the stored identifiers:
+```
+139      /** Clear localStorage copy of session & player IDs. */
+140      function resetLocal() {
+141        store.removeItem(sessionKey);
+142        store.removeItem(playerKey);
+143      }
+```
+After the IDs are wiped, the user is sent back to the Join page.
+There, clicking Join triggers a new request to /api/join:
+```
+150        /* -------------------------------------------------- JOIN PAGE ----- */
+151        "join": () => {
+...
+159          document.getElementById("join-btn").onclick = async () => {
+160            // POST /api/join → returns new session_id + player_id
+161            const { session_id, player_id } = await fetch(`${API}/api/join`,
+162              { method: "POST" }).then(r => r.json());
+163
+164            // Persist IDs for future refreshes
+165            store.setItem(sessionKey, session_id);
+166            store.setItem(playerKey,  player_id);
+167            goto("waiting-opponent");
+168          };
+```
+On the server, join_session() either places the player in a waiting session or starts a new one:
+```
+94  def join_session() -> Tuple[str, str]:
+...
+107      player_id: str = str(uuid.uuid4())
+...
+110              # Attempt to find a session waiting for more players.
+...
+134                  if cur.rowcount == 1:
+135                      # Successfully joined this session.
+136                      return session_id, player_id
+...
+140              # No open sessions → create one.
+141              session_id = str(uuid.uuid4())
+...
+151              return session_id, player_id
+```
+
+Therefore, clicking Play again just clears the current session/player IDs and routes the browser back to the Join page. The next click on Join causes a new /api/join request, which allocates a fresh player ID and either reuses an open session or creates a new one. The previous (finished) session remains in the database, while the player enters a new session as if starting from scratch.
+
+
