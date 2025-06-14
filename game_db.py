@@ -1,8 +1,8 @@
-
 """
 game_db.py
 
-A minimal SQLite-backed helper for two‍player games (e.g. Rock‍Paper‍Scissors).
+A minimal SQLite-backed helper for games with up to
+``game_parameters.MAX_PLAYERS`` participants (e.g. Rock‍Paper‍Scissors).
 
 Key improvements over the original sketch
 -----------------------------------------
@@ -223,14 +223,3 @@ def get_results(session_id: str) -> List[Dict[str, str]]:
     [{"player": ..., "choice": ...}, ...]
     """
     with _get_conn() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT player_id, choice
-            FROM   moves
-            WHERE  session_id = ?
-            ORDER BY ROWID
-            """,
-            (session_id,),
-        )
-        return [{"player": p, "choice": c} for p, c in cur.fetchall()]
