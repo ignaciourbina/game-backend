@@ -77,7 +77,7 @@ sqlite3 game.db         # open DB file
 .mode column            # nice aligned output
 
 2  Common queries for the PD game
-
+```sqlite
 SELECT * FROM sessions;
 SELECT * FROM moves;
 
@@ -96,9 +96,9 @@ SUM(m.choice = 'Defect')    AS defect
 FROM sessions s
 LEFT JOIN moves m ON m.session_id = s.id
 GROUP BY s.id;
-
+```
 3  Export to CSV / JSON
-
+```sqlite
 .mode csv
 .headers on
 .output moves.csv
@@ -110,9 +110,9 @@ sqlite3 -header -csv game.db "SELECT * FROM moves;" > moves.csv
 
 -- JSON export (SQLite ≥3.38)
 sqlite3 -json game.db "SELECT json_group_array(json_object('session',session_id,'player',player_id,'choice',choice)) FROM moves;" > moves.json
-
+```
 4  Exit shell
-
+```sqlite
 .quit                    # or .exit
 
-
+```
