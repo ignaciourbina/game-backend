@@ -13,6 +13,7 @@ from typing import TypedDict
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 import game_db as db  # database helper module
@@ -77,3 +78,18 @@ def move(m: MoveIn):
 @app.get("/api/result")
 def result(session_id: str):
     return {"results": db.get_results(session_id)}
+
+
+# --------------------------------------------------------------------------- #
+# Dataset download endpoint
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/dataset", response_class=FileResponse)
+def download_dataset():
+    """Download the raw SQLite database so it can be fetched with curl.
+
+    Example:
+        curl -L -o game.db "<BACKEND-URL>/api/dataset"
+    """
+    # NOTE: `_DB_FILE` is defined in game_db.py; we expose it here for convenience.
+    return FileResponse(path=str(db._DB_FILE), filename="game.db", media_type="application/octet-stream")
