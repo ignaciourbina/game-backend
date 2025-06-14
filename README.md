@@ -1,6 +1,6 @@
 # 🕊️ Prisoner’s‑Dilemma Mini‑Stack
 
-A **zero‑dependency front‑end** + **FastAPI/SQLite back‑end** that lets any two visitors play a one‑shot Prisoner’s Dilemma in real time — perfect for demos, behavioural‑econ labs, or multiplayer tutorials.
+A **zero‑dependency front‑end** + **FastAPI/SQLite back‑end** that lets visitors play a one‑shot Prisoner’s Dilemma in real time. The number of players defaults to two and can be changed via the `MAX_PLAYERS` environment variable — perfect for demos, behavioural‑econ labs, or multiplayer tutorials.
 
 ---
 
@@ -9,9 +9,9 @@ A **zero‑dependency front‑end** + **FastAPI/SQLite back‑end** that lets an
 | Layer          | Tech & File(s)                                     | Purpose                                                                                                                                                                  |
 | -------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **UI**         | [`index.html`](./index.html)                       | Single‑page hash‑router (vanilla JS) that calls the API and renders five pseudo‑pages: *Join → Wait → Play → Wait → Results*. No build step needed.                      |
-| **API**        | [`app.py`](./app.py)                               | FastAPI with six REST endpoints – `/join`, `/state`, `/move`, `/result`, `/dataset` (**GET** download, **DELETE** purge). Runs in a HF *FastAPI* Space or any container. |
-| **Data**       | [`game_db.py`](./game_db.py)                       | Thin SQLite helper (`/data/game.db`) with safety rails: context‑managed connections, foreign keys, unique constraints.                                                   |
-| **Tests**      | [`test_api.sh`](./test_api.sh)                     | Bash harness that spawns two sessions (four players), submits moves, and downloads the DB.                                                                               |
+| **API**        | [`app.py`](./app.py)                               | FastAPI with six REST endpoints – `/join`, `/state`, `/move`, `/result`, `/dataset` (**GET** download, **DELETE** purge). Runs in a HF *FastAPI* Space or any container. Title configurable via `APP_TITLE`. |
+| **Data**       | [`game_db.py`](./game_db.py)                       | Thin SQLite helper (path via `GAME_DB_FILE`, default /data/game.db) with safety rails: context‑managed connections, foreign keys, unique constraints. Valid moves are read from `CHOICES`.                                                   |
+| **Tests**      | [`test_api.sh`](./test_api.sh)                     | Bash harness that spawns two sessions (`MAX_PLAYERS` players each by default), submits moves, and downloads the DB.                                                                               |
 | **SQL cheats** | [`sqlite_cheatsheet.md`](./sqlite_cheatsheet.md) | Copy‑paste SQLite commands for inspection & export.                                                                                                                      |
 
 ---
@@ -36,7 +36,13 @@ A **zero‑dependency front‑end** + **FastAPI/SQLite back‑end** that lets an
 python -m venv venv && source venv/bin/activate
 pip install fastapi[all] uvicorn
 
-# launch API (auto‑creates game.db)
+# optional customisation
+export MAX_PLAYERS=2                   # players per session
+export CHOICES="Cooperate,Defect"      # valid moves
+export GAME_DB_FILE=/data/game.db      # SQLite path
+export APP_TITLE="Two-Player Game API" # docs label
+
+# launch API (creates DB if needed)
 uvicorn app:app --reload --port 8000
 #                ↑ 0.0.0.0 for Docker
 
@@ -64,7 +70,7 @@ Each visitor auto‑pairs with the next visitor; phase logic lives in the DB.
 | **GET** `/api/state`      | Poll phase                          | `session_id`                        | `{ players, moves, phase }`                         |
 | **POST** `/api/move`      | Submit choice                       | `{ session_id, player_id, choice }` | same as `/state`                                    |
 | **GET** `/api/result`     | Fetch both moves                    | `session_id`                        | `{ results:[{player,choice},…] }`                   |
-| **GET** `/api/dataset`    | Download raw DB                     | –                                   | *binary `game.db`*                                  |
+| **GET** `/api/dataset`    | Download raw DB                     | –                                   | file from `GAME_DB_FILE`                                  |
 | **DELETE** `/api/dataset` | Reset DB (testing)                  | –                                   | `{ detail: "database reset; all sessions purged" }` |
 
 **Cheat‑curl**
@@ -75,7 +81,7 @@ curl "<API>/api/state?session_id=<SID>"
 curl -X POST <API>/api/move -H "Content-Type: application/json" \
      -d '{"session_id":"<SID>","player_id":"<PID>","choice":"Cooperate"}'
 curl "<API>/api/result?session_id=<SID>"
-curl -o game.db <API>/api/dataset
+curl -o my.db <API>/api/dataset        # file from `GAME_DB_FILE`
 curl -X DELETE <API>/api/dataset   # wipe
 ```
 
@@ -84,8 +90,8 @@ curl -X DELETE <API>/api/dataset   # wipe
 ## 🔬 Data inspection
 
 ```bash
-sqlite3 game.db ".tables"                     # sessions moves
-sqlite3 game.db "SELECT choice,COUNT(*) FROM moves GROUP BY choice;"
+sqlite3 $GAME_DB_FILE ".tables"                     # sessions moves
+sqlite3 $GAME_DB_FILE "SELECT choice,COUNT(*) FROM moves GROUP BY choice;"
 ```
 
 See [`sqlite_cheatsheet.txt`](./sqlite_cheatsheet.txt) or the *SQLite Starter Pack* canvas for more.
@@ -95,11 +101,11 @@ See [`sqlite_cheatsheet.txt`](./sqlite_cheatsheet.txt) or the *SQLite Starter Pa
 ## 🧪 End‑to‑end smoke test
 
 ```bash
-# spins up 2 sessions / 4 moves, then downloads DB
+# spins up two sessions with demo moves, then downloads the DB
 bash test_api.sh https://<backend-space>.hf.space
 ```
 
-Should end with ✅ and `game.db` of \~20–30 KB.
+Should end with ✅ and a SQLite file (from `GAME_DB_FILE`) of \~20–30 KB.
 
 ---
 
