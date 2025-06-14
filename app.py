@@ -79,3 +79,9 @@ def move(m: MoveIn):
 def result(session_id: str):
     return {"results": db.get_results(session_id)}
 
+# --------------------------------------------------------------------------- #
+# Static SPA (index.html lives in ./static)
+# --------------------------------------------------------------------------- #
+_STATIC_DIR = Path(__file__).parent / "static"
+_STATIC_DIR.mkdir(exist_ok=True)  # runtime safety; Docker image copies files anyway
+app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
