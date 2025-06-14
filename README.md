@@ -115,6 +115,12 @@ PRs welcome!
 
 ---
 
+## 🌱 Roadmap
+
+For the longer-term vision of turning this demo into a reusable module and zero-code builder, see [ROADMAP.md](./ROADMAP.md).
+
+---
+
 ## 📄 License
 
 MIT – do whatever you like, attribution appreciated.
