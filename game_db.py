@@ -223,3 +223,8 @@ def get_results(session_id: str) -> List[Dict[str, str]]:
     [{"player": ..., "choice": ...}, ...]
     """
     with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT player_id, choice FROM moves WHERE session_id = ? ORDER BY rowid",
+            (session_id,)
+        ).fetchall()
+    return [{"player": pid, "choice": choice} for pid, choice in rows]
