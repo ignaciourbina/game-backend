@@ -26,17 +26,18 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import game_parameters
+
 # --------------------------------------------------------------------------- #
 # Paths & helpers
 # --------------------------------------------------------------------------- #
-_DB_DIR: Path = Path("/data")
-_DB_FILE: Path = _DB_DIR / "game.db"
+DB_FILE: Path = game_parameters.DB_FILE
 
 
 @contextmanager
 def _get_conn() -> sqlite3.Connection:
     """Yield a SQLite connection with `foreign_keys` enabled."""
-    conn = sqlite3.connect(_DB_FILE)
+    conn = sqlite3.connect(DB_FILE)
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
@@ -51,19 +52,20 @@ def _get_conn() -> sqlite3.Connection:
 
 def init_db() -> None:
     """Ensure the on‍disk database and tables exist."""
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
+    DB_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     with _get_conn() as conn:
         cur = conn.cursor()
-        # Sessions (a game waiting for 2 players)
+        # Sessions (a game waiting for MAX_PLAYERS players)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
                 id           TEXT PRIMARY KEY,
                 player_count INTEGER NOT NULL DEFAULT 0
-                                 CHECK(player_count BETWEEN 0 AND 2)
+                                 CHECK(player_count BETWEEN 0 AND {max_p})
             )
             """
+            .format(max_p=game_parameters.MAX_PLAYERS)
         )
 
         # Individual moves made inside a session
@@ -91,7 +93,8 @@ def init_db() -> None:
 
 def join_session() -> Tuple[str, str]:
     """
-    Find (or create) a session that has fewer than 2 players and join it.
+    Find (or create) a session that has fewer than ``MAX_PLAYERS`` players and
+    join it.
 
     Returns
     -------
@@ -104,24 +107,26 @@ def join_session() -> Tuple[str, str]:
         player_id: str = str(uuid.uuid4())
 
         while True:
-            # Attempt to find a session waiting for exactly one player.
+            # Attempt to find a session waiting for more players.
             cur.execute(
                 """
-                SELECT id
+                SELECT id, player_count
                 FROM   sessions
-                WHERE  player_count = 1
-                LIMIT  1
-                """
+                WHERE  player_count < ?
+                ORDER BY player_count DESC
+                LIMIT 1
+                """,
+                (game_parameters.MAX_PLAYERS,),
             )
             row = cur.fetchone()
 
             if row:
-                (session_id,) = row
+                session_id, pcount = row
                 try:
                     cur.execute(
                         "UPDATE sessions SET player_count = player_count + 1 "
-                        "WHERE id = ? AND player_count = 1",
-                        (session_id,),
+                        "WHERE id = ? AND player_count = ?",
+                        (session_id, pcount),
                     )
                 except sqlite3.IntegrityError as exc:
                     raise ValueError("Failed to join existing session") from exc
@@ -139,7 +144,7 @@ def join_session() -> Tuple[str, str]:
                     "INSERT INTO sessions (id, player_count) VALUES (?, 1)",
                     (session_id,),
                 )
-            except sqlite3.IntegrityError as exc:
+            except sqlite3.IntegrityError:
                 # Extremely unlikely UUID collision or race; retry.
                 continue
 
@@ -164,7 +169,7 @@ def get_state(session_id: str) -> Dict[str, int | str]:
         moves: int = cur.fetchone()[0]
 
     # Decide phase
-    if players < 2:
+    if players < game_parameters.MAX_PLAYERS:
         phase = "waiting_for_opponent"
     elif moves < players:
         phase = "waiting_for_moves"
@@ -190,7 +195,9 @@ def save_move(session_id: str, player_id: str, choice: str) -> None:
         # Ensure session exists & not finished
         state = get_state(session_id)
         if state["phase"] == "waiting_for_opponent":
-            raise ValueError("Cannot submit moves until two players have joined.")
+            raise ValueError(
+                f"Cannot submit moves until {game_parameters.MAX_PLAYERS} players have joined."
+            )
         if state["phase"] == "finished":
             raise ValueError("Session already finished; no further moves accepted.")
 

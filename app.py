@@ -127,7 +127,7 @@ def download_dataset():
     curl -L -o game.db "<BASE_URL>/api/dataset"
     ```
     """
-    return FileResponse(path=str(db._DB_FILE), filename="game.db", media_type="application/octet-stream")
+    return FileResponse(path=str(db.DB_FILE), filename="game.db", media_type="application/octet-stream")
 
 
 @app.delete("/api/dataset", status_code=200)
@@ -141,7 +141,7 @@ def purge_dataset():
     → `{ "detail": "database reset; all sessions purged" }`
     """
     # Remove the DB if it exists, then recreate an empty one.
-    if os.path.exists(db._DB_FILE):
-        os.remove(db._DB_FILE)
+    if os.path.exists(db.DB_FILE):
+        os.remove(db.DB_FILE)
     db.init_db()
     return {"detail": "database reset; all sessions purged"}
