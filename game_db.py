@@ -1,6 +1,6 @@
 
 """
-db.py
+game_db.py
 
 A minimal SQLite-backed helper for two‍player games (e.g. Rock‍Paper‍Scissors).
 
