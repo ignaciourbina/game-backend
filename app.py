@@ -1,225 +1,139 @@
-"""
-game_db.py
+# ---------------- app.py ----------------
+"""FastAPI **JSON‑only** backend for a Prisoner’s Dilemma demo supporting up to
+``game_parameters.MAX_PLAYERS`` players.
 
-A minimal SQLite-backed helper for games with up to
-``game_parameters.MAX_PLAYERS`` participants (e.g. Rock‍Paper‍Scissors).
-
-Key improvements over the original sketch
------------------------------------------
-* Context‍manager (`get_conn`) guarantees connections are always closed
-  even when an exception occurs.
-* PRAGMA `foreign_keys = ON` so `moves.session_id` respects the parent `sessions` row.
-* `moves` has a `(session_id, player_id)` UNIQUE constraint so the same
-  player cannot submit two moves for one game.
-* `join_session()` now also returns a unique `player_id`, so callers have
-  an opaque token they can pass back to `save_move()`.
-* Extra safety checks raise clear `ValueError`s for illegal states
-  (unknown session, session full, duplicate moves, etc.).
-* Typed function signatures for easier integration & autocomplete.
+*   **No static assets** – the UI is hosted separately.
+*   **Six REST endpoints** – join, state, move, result, **dataset download & destroy** – each documented inline with a terse cURL snippet and precise contract.
+*   Designed for Hugging Face *FastAPI Space* or any OCI‑compliant container; `app` is auto‑discovered.
 """
 
 from __future__ import annotations
 
-import sqlite3
-import uuid
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Dict, List, Tuple
+import os
+from typing import TypedDict
+from enum import Enum
+
+from fastapi import FastAPI, HTTPException, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 import game_parameters
 
+import game_db as db  # local SQLite helper
+
 # --------------------------------------------------------------------------- #
-# Paths & helpers
+# Application bootstrap
 # --------------------------------------------------------------------------- #
-DB_FILE: Path = game_parameters.DB_FILE
+
+app = FastAPI(title=game_parameters.APP_TITLE)
+db.init_db()
+
+# CORS: allow any origin so a static HTML page can query the API from
+# anywhere.  Tighten `allow_origins` in production if you have a fixed
+# UI domain.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --------------------------------------------------------------------------- #
+# Pydantic / typing helpers
+# --------------------------------------------------------------------------- #
+
+class JoinResponse(TypedDict):
+    session_id: str  # UUID4, primary‑key into `sessions`
+    player_id: str   # UUID4, opaque to client
 
 
-@contextmanager
-def _get_conn() -> sqlite3.Connection:
-    """Yield a SQLite connection with `foreign_keys` enabled."""
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("PRAGMA foreign_keys = ON")
+ChoiceEnum = Enum("ChoiceEnum", {c.upper(): c for c in game_parameters.CHOICES}, type=str)
+
+
+class MoveIn(BaseModel):
+    session_id: str
+    player_id: str
+    choice: ChoiceEnum
+
+
+# --------------------------------------------------------------------------- #
+# REST endpoints
+# --------------------------------------------------------------------------- #
+
+@app.post("/api/join", response_model=JoinResponse, status_code=200)
+def join() -> JoinResponse:
+    """`POST /api/join` – allocate a **session/player tuple**.
+
+    *Transactional semantics*: if a session has fewer than
+    ``game_parameters.MAX_PLAYERS`` participants its counter is atomically
+    incremented; otherwise a new `sessions` row is inserted.
+
+    ```bash
+    curl -X POST <BASE_URL>/api/join
+    ```
+    """
+    sid, pid = db.join_session()
+    return {"session_id": sid, "player_id": pid}
+
+
+@app.get("/api/state")
+def state(session_id: str):
+    """`GET /api/state` – interrogate the session‑level **state machine**.
+
+    Returns `{players:int, moves:int, phase:str}` where
+    `phase ∈ {waiting_for_opponent, waiting_for_moves, finished}`.
+
+    ```bash
+    curl "<BASE_URL>/api/state?session_id=<SID>"
+    ```
+    """
     try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
+        return db.get_state(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@@ -105,43 +112,43 @@ def move(m: MoveIn):
+
+
+@app.get("/api/result")
+def result(session_id: str):
+    """`GET /api/result` – return all moves for the session.
+
+    ```bash
+    curl "<BASE_URL>/api/result?session_id=<SID>"
+    ```
+    """
+    return {"results": db.get_results(session_id)}
 
 
 # --------------------------------------------------------------------------- #
-# Schema initialisation
+# Dataset helpers
 # --------------------------------------------------------------------------- #
 
-def init_db() -> None:
-    """Ensure the on‍disk database and tables exist."""
-    DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+@app.get("/api/dataset", response_class=FileResponse)
+def download_dataset():
+    """`GET /api/dataset` – stream the **raw SQLite file** (`game.db`).
 
-    with _get_conn() as conn:
-        cur = conn.cursor()
-        # Sessions (a game waiting for MAX_PLAYERS players)
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sessions (
-                id           TEXT PRIMARY KEY,
-                player_count INTEGER NOT NULL DEFAULT 0
-                                 CHECK(player_count BETWEEN 0 AND {max_p})
-            )
-            """
-            .format(max_p=game_parameters.MAX_PLAYERS)
-        )
-
-        # Individual moves made inside a session
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS moves (
-                session_id TEXT NOT NULL,
-                player_id  TEXT NOT NULL,
-                choice     TEXT NOT NULL,
-                UNIQUE (session_id, player_id),
-                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-            )
-            """
-        )
-
-        # Helpful index for frequent look‍ups
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_moves_session ON moves(session_id)"
-        )
-
-
-# --------------------------------------------------------------------------- #
-# Public API
-# --------------------------------------------------------------------------- #
-
-def join_session() -> Tuple[str, str]:
+    ```bash
+    curl -L -o game.db "<BASE_URL>/api/dataset"
+    ```
     """
-    Find (or create) a session that has fewer than ``MAX_PLAYERS`` players and
-    join it.
+    return FileResponse(path=str(game_parameters.DB_FILE), filename="game.db", media_type="application/octet-stream")
 
-    Returns
-    -------
-    (session_id, player_id)
-        Both are opaque UUID4 strings generated server‍side.
+
+@app.delete("/api/dataset", status_code=200)
+def purge_dataset():
+    """`DELETE /api/dataset` – **wipe** the SQLite file and start fresh, then
+    emit a *human‑readable JSON confirmation* instead of a blank 204.
+
+    ```bash
+    curl -X DELETE <BASE_URL>/api/dataset
+    ```
+    → `{ "detail": "database reset; all sessions purged" }`
     """
-    with _get_conn() as conn:
-        cur = conn.cursor()
-
-        player_id: str = str(uuid.uuid4())
-
-        while True:
-            # Attempt to find a session waiting for more players.
-            cur.execute(
-                """
-                SELECT id, player_count
-                FROM   sessions
-                WHERE  player_count < ?
-                ORDER BY player_count DESC
-                LIMIT 1
-                """,
-                (game_parameters.MAX_PLAYERS,),
-            )
-            row = cur.fetchone()
-
-            if row:
-                session_id, pcount = row
-                try:
-                    cur.execute(
-                        "UPDATE sessions SET player_count = player_count + 1 "
-                        "WHERE id = ? AND player_count = ?",
-                        (session_id, pcount),
-                    )
-                except sqlite3.IntegrityError as exc:
-                    raise ValueError("Failed to join existing session") from exc
-
-                if cur.rowcount == 1:
-                    # Successfully joined this session.
-                    return session_id, player_id
-                # Lost a race – another join updated first. Retry search.
-                continue
-
-            # No open sessions → create one.
-            session_id = str(uuid.uuid4())
-            try:
-                cur.execute(
-                    "INSERT INTO sessions (id, player_count) VALUES (?, 1)",
-                    (session_id,),
-                )
-            except sqlite3.IntegrityError:
-                # Extremely unlikely UUID collision or race; retry.
-                continue
-
-            return session_id, player_id
-
-
-def get_state(session_id: str) -> Dict[str, int | str]:
-    """
-    Return a high‍level view of the session: number of players, number of moves, phase.
-    """
-    with _get_conn() as conn:
-        cur = conn.cursor()
-
-        cur.execute("SELECT player_count FROM sessions WHERE id = ?", (session_id,))
-        row = cur.fetchone()
-        if not row:
-            raise ValueError(f"Unknown session_id: {session_id}")
-
-        players: int = row[0]
-
-        cur.execute("SELECT COUNT(*) FROM moves WHERE session_id = ?", (session_id,))
-        moves: int = cur.fetchone()[0]
-
-    # Decide phase
-    if players < game_parameters.MAX_PLAYERS:
-        phase = "waiting_for_opponent"
-    elif moves < players:
-        phase = "waiting_for_moves"
-    else:
-        phase = "finished"
-
-    return {"players": players, "moves": moves, "phase": phase}
-
-
-def save_move(session_id: str, player_id: str, choice: str) -> None:
-    """
-    Persist a single move for a given player inside a session.
-
-    Raises
-    ------
-    ValueError
-        If the session does not exist, or the session is already finished,
-        or the player already submitted a move.
-    """
-    with _get_conn() as conn:
-        cur = conn.cursor()
-
-        # Ensure session exists & not finished
-        state = get_state(session_id)
-        if state["phase"] == "waiting_for_opponent":
-            raise ValueError(
-                f"Cannot submit moves until {game_parameters.MAX_PLAYERS} players have joined."
-            )
-        if state["phase"] == "finished":
-            raise ValueError("Session already finished; no further moves accepted.")
-
-        # Attempt insert
-        try:
-            cur.execute(
-                """
-                INSERT INTO moves (session_id, player_id, choice)
-                VALUES (?, ?, ?)
-                """,
-                (session_id, player_id, choice),
-            )
-        except sqlite3.IntegrityError as exc:
-            raise ValueError("Duplicate move or invalid session.") from exc
-
-
-def get_results(session_id: str) -> List[Dict[str, str]]:
-    """
-    Fetch the list of moves for a session (order is insertion order).
-
-    Returns
-    -------
-    [{"player": ..., "choice": ...}, ...]
-    """
-    with _get_conn() as conn:
+    # Remove the DB if it exists, then recreate an empty one.
+    if os.path.exists(game_parameters.DB_FILE):
+        os.remove(game_parameters.DB_FILE)
+    db.init_db()
+    return {"detail": "database reset; all sessions purged"}
