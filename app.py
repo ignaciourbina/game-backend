@@ -2,18 +2,16 @@
 """FastAPI **JSON‑only** backend for the two‑player Prisoner’s Dilemma demo.
 
 *   **No static assets** – the UI is hosted separately.
-*   **Five REST endpoints** – each documented inline with a terse cURL
-    ready to paste and a *technical* contract (method, status codes,
-    request/response schema).
-*   Designed for Hugging Face *FastAPI Space* or any OCI‑compliant
-    container; `app` is auto‑discovered.
+*   **Six REST endpoints** – join, state, move, result, **dataset download & destroy** – each documented inline with a terse cURL snippet and precise contract.
+*   Designed for Hugging Face *FastAPI Space* or any OCI‑compliant container; `app` is auto‑discovered.
 """
 
 from __future__ import annotations
 
+import os
 from typing import TypedDict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -49,7 +47,7 @@ class JoinResponse(TypedDict):
 class MoveIn(BaseModel):
     session_id: str
     player_id: str
-    choice: str  # "Cooperate" | "Defect"  (no enum for brevity)
+    choice: str  # "Cooperate" | "Defect" (string for brevity)
 
 
 # --------------------------------------------------------------------------- #
@@ -60,13 +58,9 @@ class MoveIn(BaseModel):
 def join() -> JoinResponse:
     """`POST /api/join` – allocate a **session/player tuple**.
 
-    *   **Transactional semantics:**
-        *If* a session exists with `player_count = 1` it is atomically
-        updated to 2; otherwise a new `sessions` row is inserted with
-        `player_count = 1`.
-    *   **Returns:** `200 OK` + JSON body `{"session_id", "player_id"}`.
-      Both are UUID4 strings generated server‑side.
-    *   **Failure modes:** none (always succeeds).
+    *Transactional semantics*: if a session with `player_count = 1` exists
+    it is atomically promoted to 2; otherwise a new `sessions` row is
+    inserted.
 
     ```bash
     curl -X POST <BASE_URL>/api/join
@@ -78,12 +72,10 @@ def join() -> JoinResponse:
 
 @app.get("/api/state")
 def state(session_id: str):
-    """`GET /api/state` – interrogate a session‑level **state machine**.
+    """`GET /api/state` – interrogate the session‑level **state machine**.
 
-    *   **Query params:** `session_id=<uuid4>`.
-    *   **Response (200):** JSON with keys
-        `{players:int, moves:int, phase:str}` where `phase ∈ {waiting_for_opponent, waiting_for_moves, finished}`.
-    *   **404** if `session_id` is unknown / expired.
+    Returns `{players:int, moves:int, phase:str}` where
+    `phase ∈ {waiting_for_opponent, waiting_for_moves, finished}`.
 
     ```bash
     curl "<BASE_URL>/api/state?session_id=<SID>"
@@ -97,15 +89,7 @@ def state(session_id: str):
 
 @app.post("/api/move", status_code=200)
 def move(m: MoveIn):
-    """`POST /api/move` – persist a **single move** (idempotent per player).
-
-    *   **Body:** JSON matching `MoveIn` (see above).
-    *   **Transactional guards:**
-        * duplicate move ➜ `400 Bad Request`
-        * session not at 2 players ➜ `400`
-        * session already finished ➜ `400`
-    *   **Success payload (200):** same shape as `/api/state` so the UI
-        can refresh phase without an extra request.
+    """`POST /api/move` – persist one move (idempotent per player).
 
     ```bash
     curl -X POST <BASE_URL>/api/move \
@@ -122,12 +106,7 @@ def move(m: MoveIn):
 
 @app.get("/api/result")
 def result(session_id: str):
-    """`GET /api/result` – list **all moves** in insertion order.
-
-    *   **200 OK:** `{ "results": [ {"player", "choice"}, … ] }`.
-        Only available once `phase == finished`; caller must poll `/api/state`.
-    *   **No error branch:** if game isn’t finished you still get the
-        partial array – the front‑end treats phase as the gatekeeper.
+    """`GET /api/result` – return all moves for the session.
 
     ```bash
     curl "<BASE_URL>/api/result?session_id=<SID>"
@@ -137,19 +116,35 @@ def result(session_id: str):
 
 
 # --------------------------------------------------------------------------- #
-# Data‑export helper
+# Dataset helpers
 # --------------------------------------------------------------------------- #
 
 @app.get("/api/dataset", response_class=FileResponse)
 def download_dataset():
     """`GET /api/dataset` – stream the **raw SQLite file** (`game.db`).
 
-    Useful for offline analytics or debugging.  The route sets
-    `Content‑Disposition: attachment; filename=game.db` so browsers
-    download instead of preview.
-
     ```bash
     curl -L -o game.db "<BASE_URL>/api/dataset"
     ```
     """
     return FileResponse(path=str(db._DB_FILE), filename="game.db", media_type="application/octet-stream")
+
+
+@app.delete("/api/dataset", status_code=204)
+def purge_dataset():
+    """`DELETE /api/dataset` – **destroy** the SQLite database and re‑init.
+
+    Intended for automated test suites (e.g. CI) that require a clean
+    slate.  Irreversible – all sessions and moves are lost.
+
+    ```bash
+    curl -X DELETE <BASE_URL>/api/dataset
+    ```
+    """
+    # Remove if present, then re‑create an empty DB.
+    try:
+        if os.path.exists(db._DB_FILE):
+            os.remove(db._DB_FILE)
+    finally:
+        db.init_db()
+    return Response(status_code=204)
